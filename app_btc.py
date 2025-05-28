@@ -1,91 +1,54 @@
 import streamlit as st
-import requests
+from datetime import datetime
 import pandas as pd
-import plotly.graph_objects as go
 
-# --- APIキー（.streamlit/secrets.toml から取得） ---
-CRYPTO_API_KEY = st.secrets["CRYPTO_API_KEY"]
-DEEPL_API_KEY = st.secrets["DEEPL_API_KEY"]
+# デモ用の価格変化データ（API連携は未実装）
+price_changes = {
+    "15分前比": "+0.8%",
+    "30分前比": "-0.2%",
+    "1時間前比": "+1.1%",
+    "1日前比": "-0.6%",
+    "1週間前比": "+3.5%"
+}
 
-# --- ヘッダー ---
+# Streamlitページ設定
 st.set_page_config(page_title="BTCファンダBOT", layout="wide")
+
+# タイトル
 st.title("📊 BTCファンダメンタルBOT")
-st.markdown("Bitcoinの価格、心理、ニュースを1ページでチェック！")
 
-# --- レイアウトの列設定 ---
-col1, col2, col3 = st.columns(3)
+# 現在価格
+st.header("💰 現在のBTC価格")
+st.metric(label="USD", value="$68,500", delta="+1.2%")
 
-# --- BTC価格表示 ---
-def get_btc_price():
-    url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,jpy"
-    response = requests.get(url)
-    return response.json()
+# Fear & Greed Index 表示
+st.header("🧠 Fear & Greed Index")
+fg_index = 71
+if fg_index >= 75:
+    fg_label = "🔴 Greed／売り傾向"
+elif fg_index >= 50:
+    fg_label = "🟡 中立〜やや売り傾向"
+else:
+    fg_label = "🟢 Fear／買い傾向"
+st.markdown(f"**現在の指数：{fg_index}（{fg_label}）**")
 
-price = get_btc_price()
-with col1:
-    st.subheader("💰 BTC価格")
-    st.metric(label="USD", value=f"${price['bitcoin']['usd']:,}")
-    st.metric(label="JPY", value=f"¥{price['bitcoin']['jpy']:,}")
+# BTC価格変化
+with st.expander("🕒 BTC価格の変化を見る（15分〜1週間）"):
+    cols = st.columns(len(price_changes))
+    for i, (label, value) in enumerate(price_changes.items()):
+        cols[i].metric(label, value)
 
-# --- Fear & Greed Index 表示 ---
-def get_fear_and_greed_index():
-    url = "https://api.alternative.me/fng/"
-    response = requests.get(url).json()
-    value = int(response["data"][0]["value"])
-    if value <= 25:
-        label = "🟢 恐怖（買い時）"
-    elif value >= 75:
-        label = "🔴 欲望（売り時）"
-    else:
-        label = "🟡 中立"
-    return value, label
+# 関連ニュース（仮のデータ）
+st.header("📰 関連ニュース・イベント")
+news_data = [
+    {"title": "ビットコインETF承認に前進", "impact": "high"},
+    {"title": "マイニング難易度が過去最高に", "impact": "medium"},
+    {"title": "SECが暗号資産規制に言及", "impact": "high"},
+    {"title": "主要取引所が新機能リリース", "impact": "low"},
+    {"title": "ビットコイン週次リポート発表", "impact": "medium"},
+]
+for item in news_data:
+    icon = "🚨" if item["impact"] == "high" else "🔍" if item["impact"] == "medium" else "📄"
+    st.markdown(f"- {icon} {item['title']}")
 
-fng_value, fng_label = get_fear_and_greed_index()
-with col2:
-    st.subheader("🧠 市場心理")
-    st.markdown(f"**現在の指数：{fng_value}（{fng_label}）**")
-
-# --- BTC価格チャート（30日） ---
-def get_btc_history():
-    url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=30"
-    response = requests.get(url).json()
-    prices = response["prices"]
-    df = pd.DataFrame(prices, columns=["timestamp", "price"])
-    df["date"] = pd.to_datetime(df["timestamp"], unit="ms")
-    return df
-
-btc_df = get_btc_history()
-with col3:
-    st.subheader("📈 30日間の価格推移")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=btc_df["date"], y=btc_df["price"], mode="lines", name="BTC Price"))
-    fig.update_layout(height=250, margin=dict(l=0, r=0, t=30, b=0), xaxis_title=None, yaxis_title=None)
-    st.plotly_chart(fig, use_container_width=True)
-
-# --- ニュース取得＋翻訳 ---
-st.divider()
-st.subheader("📰 BTCニュース（CryptoPanic）")
-
-def get_crypto_news():
-    url = f"https://cryptopanic.com/api/v1/posts/?auth_token={CRYPTO_API_KEY}&currencies=BTC"
-    response = requests.get(url).json()
-    return response["results"][:5]
-
-def translate_text(text):
-    url = "https://api-free.deepl.com/v2/translate"
-    data = {
-        "auth_key": DEEPL_API_KEY,
-        "text": text,
-        "target_lang": "JA"
-    }
-    res = requests.post(url, data=data).json()
-    return res["translations"][0]["text"]
-
-news_items = get_crypto_news()
-
-for item in news_items:
-    title = item["title"]
-    url = item["url"]
-    highlight = "🔥 " if any(x in title.lower() for x in ["etf", "halving", "inflation", "approval", "interest", "regulation"]) else ""
-    translated_title = translate_text(title)
-    st.markdown(f"{highlight}**{translated_title}**  \n[→ 記事を見る]({url})")
+st.caption("※データはすべてデモ表示です。")
