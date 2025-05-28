@@ -46,12 +46,12 @@ def translate_text(text, api_key):
 
 # --- 表示エリア ---
 usd, jpy = get_btc_price()
-st.subheader("💰 BTC価格")
+st.subheader("📊 BTC価格")
 st.write(f"USD: ${usd:,}")
 st.write(f"JPY: ¥{jpy:,}")
 
 fg_index = get_fear_and_greed_index()
-st.subheader("🧠 Fear & Greed Index")
+st.subheader("📊 Fear & Greed Index")
 st.write(f"現在の指数：**{fg_index}**")
 
 if fg_index <= 25:
