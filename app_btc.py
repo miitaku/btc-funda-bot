@@ -1,94 +1,91 @@
 import streamlit as st
 import requests
-import os
+import pandas as pd
+import plotly.graph_objects as go
 
-# --- APIキー読み込み ---
+# --- APIキー（.streamlit/secrets.toml から取得） ---
 CRYPTO_API_KEY = st.secrets["CRYPTO_API_KEY"]
 DEEPL_API_KEY = st.secrets["DEEPL_API_KEY"]
 
-# --- BTC価格取得 ---
+# --- ヘッダー ---
+st.set_page_config(page_title="BTCファンダBOT", layout="wide")
+st.title("📊 BTCファンダメンタルBOT")
+st.markdown("Bitcoinの価格、心理、ニュースを1ページでチェック！")
+
+# --- レイアウトの列設定 ---
+col1, col2, col3 = st.columns(3)
+
+# --- BTC価格表示 ---
 def get_btc_price():
     url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,jpy"
-    res = requests.get(url)
-    data = res.json()["bitcoin"]
-    return data["usd"], data["jpy"]
+    response = requests.get(url)
+    return response.json()
 
-# --- Fear & Greed Index取得 ---
+price = get_btc_price()
+with col1:
+    st.subheader("💰 BTC価格")
+    st.metric(label="USD", value=f"${price['bitcoin']['usd']:,}")
+    st.metric(label="JPY", value=f"¥{price['bitcoin']['jpy']:,}")
+
+# --- Fear & Greed Index 表示 ---
 def get_fear_and_greed_index():
     url = "https://api.alternative.me/fng/"
-    res = requests.get(url)
-    return int(res.json()["data"][0]["value"])
+    response = requests.get(url).json()
+    value = int(response["data"][0]["value"])
+    if value <= 25:
+        label = "🟢 恐怖（買い時）"
+    elif value >= 75:
+        label = "🔴 欲望（売り時）"
+    else:
+        label = "🟡 中立"
+    return value, label
 
-# --- ニュース取得 (CryptoPanic) ---
-def get_btc_news():
+fng_value, fng_label = get_fear_and_greed_index()
+with col2:
+    st.subheader("🧠 市場心理")
+    st.markdown(f"**現在の指数：{fng_value}（{fng_label}）**")
+
+# --- BTC価格チャート（30日） ---
+def get_btc_history():
+    url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=30"
+    response = requests.get(url).json()
+    prices = response["prices"]
+    df = pd.DataFrame(prices, columns=["timestamp", "price"])
+    df["date"] = pd.to_datetime(df["timestamp"], unit="ms")
+    return df
+
+btc_df = get_btc_history()
+with col3:
+    st.subheader("📈 30日間の価格推移")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=btc_df["date"], y=btc_df["price"], mode="lines", name="BTC Price"))
+    fig.update_layout(height=250, margin=dict(l=0, r=0, t=30, b=0), xaxis_title=None, yaxis_title=None)
+    st.plotly_chart(fig, use_container_width=True)
+
+# --- ニュース取得＋翻訳 ---
+st.divider()
+st.subheader("📰 BTCニュース（CryptoPanic）")
+
+def get_crypto_news():
     url = f"https://cryptopanic.com/api/v1/posts/?auth_token={CRYPTO_API_KEY}&currencies=BTC"
-    res = requests.get(url)
-    if res.status_code == 200:
-        return res.json().get("results", [])
-    return []
+    response = requests.get(url).json()
+    return response["results"][:5]
 
-# --- DeepL翻訳 ---
 def translate_text(text):
     url = "https://api-free.deepl.com/v2/translate"
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
     data = {
         "auth_key": DEEPL_API_KEY,
         "text": text,
         "target_lang": "JA"
     }
-    res = requests.post(url, headers=headers, data=data)
-    if res.status_code == 200:
-        return res.json()["translations"][0]["text"]
-    return text
+    res = requests.post(url, data=data).json()
+    return res["translations"][0]["text"]
 
-# ========================
-#         表示開始
-# ========================
+news_items = get_crypto_news()
 
-st.markdown("# 📊 **BTCファンダレーダー**")
-st.markdown("---")
-
-# --- BTC価格表示 ---
-st.subheader("💰 BTC価格")
-usd, jpy = get_btc_price()
-st.metric(label="USD", value=f"${usd:,}")
-st.metric(label="JPY", value=f"¥{jpy:,}")
-st.markdown("---")
-
-# --- Fear & Greed Index表示 ---
-st.subheader("🧠 Fear & Greed Index")
-fg_index = get_fear_and_greed_index()
-st.write(f"現在の指数：**{fg_index}**")
-
-# 診断
-if fg_index <= 25:
-    signal = "🟢 **Fear（買い傾向）**"
-    comment = "市場は恐怖状態。買い場の可能性あり。"
-elif fg_index >= 75:
-    signal = "🔴 **Greed（売り傾向）**"
-    comment = "市場は過熱気味。利確の検討タイミング。"
-else:
-    signal = "🟡 **Neutral（中立）**"
-    comment = "市場は安定中。明確な買い/売り傾向はなし。"
-
-st.markdown(signal)
-st.info(comment)
-st.markdown("---")
-
-# --- ニュース表示 ---
-st.subheader("📰 BTC関連ニュース・イベント")
-
-posts = get_btc_news()
-if posts:
-    for post in posts[:5]:  # 最新5件表示
-        published = post.get("published_at", "")[:10]
-        title_en = post.get("title", "")
-        title_ja = translate_text(title_en)
-        url = post.get("url", "#")
-
-        st.write(f"📅 {published}")
-        st.write(f"**{title_ja}**")
-        st.markdown(f"[続きを読む]({url})")
-        st.markdown("---")
-else:
-    st.warning("ニュースが取得できませんでした。")
+for item in news_items:
+    title = item["title"]
+    url = item["url"]
+    highlight = "🔥 " if any(x in title.lower() for x in ["etf", "halving", "inflation", "approval", "interest", "regulation"]) else ""
+    translated_title = translate_text(title)
+    st.markdown(f"{highlight}**{translated_title}**  \n[→ 記事を見る]({url})")
